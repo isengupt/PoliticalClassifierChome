@@ -117897,6 +117897,8 @@ function _defineProperties(target, props) { for (var i = 0; i < props.length; i+
 
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); return Constructor; }
 
+function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+
 // Where to load the model from.
 var MOBILENET_MODEL_TFHUB_URL = "https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/2"; // Size of the image expected by mobilenet.
 
@@ -117908,15 +117910,6 @@ var MIN_IMG_SIZE = 128; // How many predictions to take.
 var TOPK_PREDICTIONS = 2;
 var FIVE_SECONDS_IN_MS = 5000;
 var count = 0;
-/**
- * What action to take when someone clicks the right-click menu option.
- *  Here it takes the url of the right-clicked image and the current tabId
- *  and forwards it to the imageClassifier's analyzeImage method.
- */
-
-function clickMenuCallback(info, tab) {
-  imageClassifier.analyzeImage(info.srcUrl, tab.id);
-}
 
 function clickTestCallback(info, tab) {
   getTest(info.selectionText, tab.id);
@@ -117942,17 +117935,7 @@ function getTest(url, tabId) {
     chrome.tabs.sendMessage(tabId, message);
   });
 }
-/**
- * Adds a right-click menu option to trigger classifying the image.
- * The menu option should only appear when right-clicking an image.
- */
 
-
-chrome.contextMenus.create({
-  title: "Classify image with TensorFlow.js ",
-  contexts: ["image"],
-  onclick: clickMenuCallback
-});
 chrome.contextMenus.create({
   title: "Classify political bias of text",
   contexts: ["selection"],
@@ -117966,59 +117949,96 @@ chrome.contextMenus.create({
  * hear and use to manipulate the DOM.
  */
 
-var ImageClassifier = /*#__PURE__*/function () {
-  function ImageClassifier() {
-    _classCallCheck(this, ImageClassifier);
+var PoliticalClassifier = /*#__PURE__*/function () {
+  function PoliticalClassifier() {
+    var _this = this;
+
+    _classCallCheck(this, PoliticalClassifier);
+
+    _defineProperty(this, "padSequences", function (sequences, metadata) {
+      var self = _this;
+      return sequences.map(function (seq) {
+        if (seq.length > metadata.max_sentence_len) {
+          seq.splice(0, seq.length - metadata.max_sentence_len);
+        }
+
+        if (seq.length < metadata.max_sentence_len) {
+          var pad = [];
+
+          for (var i = 0; i < metadata.max_sentence_len - seq.length; ++i) {
+            pad.push(0);
+          }
+
+          seq = pad.concat(seq);
+        }
+
+        return seq;
+      });
+    });
+
+    _defineProperty(this, "predict", function (text, metadata, model) {
+      var self = _this;
+      console.log(trimmed);
+      var trimmed = text.replace(",", " , ").replace("!", " ! ").replace(".", " . ").split(" ");
+      var sequence = trimmed.map(function (word) {
+        var wordIndex = metadata.words.indexOf(word);
+
+        if (wordIndex === -1) {
+          return 0; //oov_index
+        }
+
+        return wordIndex;
+      });
+      console.log([sequence]);
+      var paddedSequence = padSequences([sequence], metadata);
+      console.log(paddedSequence);
+      var input = tf.tensor2d(paddedSequence, [1, metadata.max_sentence_len]);
+      console.log(input);
+      var predictOut = model.predict(input);
+      var score = predictOut.dataSync()[0];
+      predictOut.dispose();
+      return score;
+    });
 
     this.loadModel();
+    this.loadMetaData();
+    return this;
   }
-  /**
-   * Loads mobilenet from URL and keeps a reference to it in the object.
-   */
 
-
-  _createClass(ImageClassifier, [{
+  _createClass(PoliticalClassifier, [{
     key: "loadModel",
     value: function () {
       var _loadModel = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee() {
-        var _this = this;
-
-        var startTime, totalTime;
+        var startTime, url, totalTime;
         return regeneratorRuntime.wrap(function _callee$(_context) {
           while (1) {
             switch (_context.prev = _context.next) {
               case 0:
-                console.log("Loading model...");
+                console.log("Loading up political model");
                 startTime = performance.now();
-                _context.prev = 2;
-                _context.next = 5;
-                return tf.loadGraphModel(MOBILENET_MODEL_TFHUB_URL, {
-                  fromTFHub: true
-                });
+                url = "https://raw.githubusercontent.com/isengupt/PoliticalClassifier/master/model.json";
+                _context.prev = 3;
+                _context.next = 6;
+                return tf.loadLayersModel(url);
 
-              case 5:
+              case 6:
                 this.model = _context.sent;
-                // Warms up the model by causing intermediate tensor values
-                // to be built and pushed to GPU.
-                tf.tidy(function () {
-                  _this.model.predict(tf.zeros([1, IMAGE_SIZE, IMAGE_SIZE, 3]));
-                });
                 totalTime = Math.floor(performance.now() - startTime);
-                console.log("Model loaded and initialized in ".concat(totalTime, " ms..."));
+                console.log("Political model loaded and initialized in ".concat(totalTime, " ms..."));
                 _context.next = 14;
                 break;
 
               case 11:
                 _context.prev = 11;
-                _context.t0 = _context["catch"](2);
-                console.error("Unable to load model from URL: ".concat(MOBILENET_MODEL_TFHUB_URL));
+                _context.t0 = _context["catch"](3);
+                console.error("Unable to load model from URL: ".concat(url));
 
               case 14:
               case "end":
                 return _context.stop();
             }
           }
-        }, _callee, this, [[2, 11]]);
+        }, _callee, this, [[3, 11]]);
       }));
 
       function loadModel() {
@@ -118027,92 +118047,84 @@ var ImageClassifier = /*#__PURE__*/function () {
 
       return loadModel;
     }()
-    /**
-     * Triggers the model to make a prediction on the image referenced by url.
-     * After a successful prediction a IMAGE_CLICK_PROCESSED message when
-     * complete, for the content.js script to hear and update the DOM with the
-     * results of the prediction.
-     *
-     * @param {string} url url of image to analyze.
-     * @param {number} tabId which tab the request comes from.
-     */
-
   }, {
-    key: "analyzeImage",
+    key: "loadMetaData",
     value: function () {
-      var _analyzeImage = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee3(url, tabId) {
-        var _this2 = this;
+      var _loadMetaData = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee2() {
+        var startTime, response, totalTime;
+        return regeneratorRuntime.wrap(function _callee2$(_context2) {
+          while (1) {
+            switch (_context2.prev = _context2.next) {
+              case 0:
+                console.log("Retrieving metadata");
+                startTime = performance.now();
+                _context2.prev = 2;
+                _context2.next = 5;
+                return fetch("https://raw.githubusercontent.com/isengupt/PoliticalClassifier/master/metadata.json");
 
-        var message;
+              case 5:
+                response = _context2.sent;
+                _context2.next = 8;
+                return response.json();
+
+              case 8:
+                this.metadata = _context2.sent;
+                console.log(this.metadata);
+                totalTime = Math.floor(performance.now() - startTime);
+                console.log("Word index metadata loaded in ".concat(totalTime, " ms..."));
+                _context2.next = 17;
+                break;
+
+              case 14:
+                _context2.prev = 14;
+                _context2.t0 = _context2["catch"](2);
+                console.error("Unable to retrieve from URL: ".concat(url));
+
+              case 17:
+              case "end":
+                return _context2.stop();
+            }
+          }
+        }, _callee2, this, [[2, 14]]);
+      }));
+
+      function loadMetaData() {
+        return _loadMetaData.apply(this, arguments);
+      }
+
+      return loadMetaData;
+    }()
+  }, {
+    key: "run",
+    value: function () {
+      var _run = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee3(text, className) {
+        var self, sum;
         return regeneratorRuntime.wrap(function _callee3$(_context3) {
           while (1) {
             switch (_context3.prev = _context3.next) {
               case 0:
-                if (tabId) {
-                  _context3.next = 3;
-                  break;
-                }
-
-                console.error("No tab.  No prediction.");
-                return _context3.abrupt("return");
-
-              case 3:
-                if (this.model) {
-                  _context3.next = 7;
-                  break;
-                }
-
-                console.log("Waiting for model to load...");
-                setTimeout(function () {
-                  _this2.analyzeImage(url);
-                }, FIVE_SECONDS_IN_MS);
-                return _context3.abrupt("return");
+                self = this;
+                sum = 0;
+                text.forEach(function (prediction) {
+                  console.log(" ".concat(prediction));
+                  var perc = self.predict(prediction, self.metadata, self.model);
+                  sum += parseFloat(perc, 10);
+                });
+                console.log(sum / text.length);
+                ++count;
+                chrome.runtime.sendMessage({
+                  msg: "count_update",
+                  data: {
+                    content: count
+                  }
+                });
+                return _context3.abrupt("return", Promise.resolve({
+                  score: sum / text.length,
+                  text: text,
+                  className: className
+                }));
 
               case 7:
-                this.loadImage(url).then( /*#__PURE__*/function () {
-                  var _ref = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee2(img) {
-                    var predictions;
-                    return regeneratorRuntime.wrap(function _callee2$(_context2) {
-                      while (1) {
-                        switch (_context2.prev = _context2.next) {
-                          case 0:
-                            if (img) {
-                              _context2.next = 3;
-                              break;
-                            }
-
-                            console.error("Could not load image.  Either too small or unavailable.");
-                            return _context2.abrupt("return");
-
-                          case 3:
-                            _context2.next = 5;
-                            return _this2.predict(img);
-
-                          case 5:
-                            predictions = _context2.sent;
-                            message = {
-                              action: "IMAGE_CLICK_PROCESSED",
-                              url: url,
-                              predictions: predictions
-                            };
-                            chrome.tabs.sendMessage(tabId, message);
-
-                          case 8:
-                          case "end":
-                            return _context2.stop();
-                        }
-                      }
-                    }, _callee2);
-                  }));
-
-                  return function (_x3) {
-                    return _ref.apply(this, arguments);
-                  };
-                }(), function (reason) {
-                  console.error("Failed to analyze: ".concat(reason));
-                });
-
-              case 8:
               case "end":
                 return _context3.stop();
             }
@@ -118120,243 +118132,207 @@ var ImageClassifier = /*#__PURE__*/function () {
         }, _callee3, this);
       }));
 
-      function analyzeImage(_x, _x2) {
-        return _analyzeImage.apply(this, arguments);
+      function run(_x, _x2) {
+        return _run.apply(this, arguments);
       }
 
-      return analyzeImage;
-    }()
-    /**
-     * Creates a dom element and loads the image pointed to by the provided src.
-     * @param {string} src URL of the image to load.
-     */
-
-  }, {
-    key: "loadImage",
-    value: function () {
-      var _loadImage = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee4(src) {
-        return regeneratorRuntime.wrap(function _callee4$(_context4) {
-          while (1) {
-            switch (_context4.prev = _context4.next) {
-              case 0:
-                return _context4.abrupt("return", new Promise(function (resolve, reject) {
-                  var img = document.createElement("img");
-                  img.crossOrigin = "anonymous";
-
-                  img.onerror = function (e) {
-                    reject("Could not load image from external source ".concat(src, "."));
-                  };
-
-                  img.onload = function (e) {
-                    if (img.height && img.height > MIN_IMG_SIZE || img.width && img.width > MIN_IMG_SIZE) {
-                      img.width = IMAGE_SIZE;
-                      img.height = IMAGE_SIZE;
-                      resolve(img);
-                    } // Fail out if either dimension is less than MIN_IMG_SIZE.
-
-
-                    reject("Image size too small. [".concat(img.height, " x ").concat(img.width, "] vs. minimum [").concat(MIN_IMG_SIZE, " x ").concat(MIN_IMG_SIZE, "]"));
-                  };
-
-                  img.src = src;
-                }));
-
-              case 1:
-              case "end":
-                return _context4.stop();
-            }
-          }
-        }, _callee4);
-      }));
-
-      function loadImage(_x4) {
-        return _loadImage.apply(this, arguments);
-      }
-
-      return loadImage;
-    }()
-    /**
-     * Sorts predictions by score and keeps only topK
-     * @param {Tensor} logits A tensor with one element per predicatable class
-     *   type of mobilenet.  Return of executing model.predict on an Image.
-     * @param {number} topK how many to keep.
-     */
-
-  }, {
-    key: "getTopKClasses",
-    value: function () {
-      var _getTopKClasses = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee5(logits, topK) {
-        var _tf$topk, values, indices, valuesArr, indicesArr, topClassesAndProbs, i;
-
-        return regeneratorRuntime.wrap(function _callee5$(_context5) {
-          while (1) {
-            switch (_context5.prev = _context5.next) {
-              case 0:
-                _tf$topk = tf.topk(logits, topK, true), values = _tf$topk.values, indices = _tf$topk.indices;
-                _context5.next = 3;
-                return values.data();
-
-              case 3:
-                valuesArr = _context5.sent;
-                _context5.next = 6;
-                return indices.data();
-
-              case 6:
-                indicesArr = _context5.sent;
-                console.log("indicesArr ".concat(indicesArr));
-                topClassesAndProbs = [];
-
-                for (i = 0; i < topK; i++) {
-                  topClassesAndProbs.push({
-                    className: _imagenet_classes.IMAGENET_CLASSES[indicesArr[i]],
-                    probability: valuesArr[i]
-                  });
-                }
-
-                return _context5.abrupt("return", topClassesAndProbs);
-
-              case 11:
-              case "end":
-                return _context5.stop();
-            }
-          }
-        }, _callee5);
-      }));
-
-      function getTopKClasses(_x5, _x6) {
-        return _getTopKClasses.apply(this, arguments);
-      }
-
-      return getTopKClasses;
-    }()
-    /**
-     * Executes the model on the input image, and returns the top predicted
-     * classes.
-     * @param {HTMLElement} imgElement HTML element holding the image to predict
-     *     from.  Should have the correct size ofr mobilenet.
-     */
-
-  }, {
-    key: "predict",
-    value: function () {
-      var _predict = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee6(imgElement) {
-        var _this3 = this;
-
-        var startTime1, startTime2, logits, classes, totalTime1, totalTime2;
-        return regeneratorRuntime.wrap(function _callee6$(_context6) {
-          while (1) {
-            switch (_context6.prev = _context6.next) {
-              case 0:
-                console.log("Predicting..."); // The first start time includes the time it takes to extract the image
-                // from the HTML and preprocess it, in additon to the predict() call.
-
-                startTime1 = performance.now(); // The second start time excludes the extraction and preprocessing and
-                // includes only the predict() call.
-
-                logits = tf.tidy(function () {
-                  // Mobilenet expects images to be normalized between -1 and 1.
-                  var img = tf.browser.fromPixels(imgElement).toFloat(); // const offset = tf.scalar(127.5);
-                  // const normalized = img.sub(offset).div(offset);
-
-                  var normalized = img.div(tf.scalar(256.0));
-                  var batched = normalized.reshape([1, IMAGE_SIZE, IMAGE_SIZE, 3]);
-                  startTime2 = performance.now();
-
-                  var output = _this3.model.predict(batched);
-
-                  if (output.shape[output.shape.length - 1] === 1001) {
-                    // Remove the very first logit (background noise).
-                    return output.slice([0, 1], [-1, 1000]);
-                  } else if (output.shape[output.shape.length - 1] === 1000) {
-                    return output;
-                  } else {
-                    throw new Error("Unexpected shape...");
-                  }
-                }); // Convert logits to probabilities and class names.
-
-                _context6.next = 5;
-                return this.getTopKClasses(logits, TOPK_PREDICTIONS);
-
-              case 5:
-                classes = _context6.sent;
-                totalTime1 = performance.now() - startTime1;
-                totalTime2 = performance.now() - startTime2;
-                console.log("Done in ".concat(totalTime1.toFixed(1), " ms ") + "(not including preprocessing: ".concat(Math.floor(totalTime2), " ms)"));
-                return _context6.abrupt("return", classes);
-
-              case 10:
-              case "end":
-                return _context6.stop();
-            }
-          }
-        }, _callee6, this);
-      }));
-
-      function predict(_x7) {
-        return _predict.apply(this, arguments);
-      }
-
-      return predict;
+      return run;
     }()
   }]);
 
-  return ImageClassifier;
+  return PoliticalClassifier;
 }();
 
-var imageClassifier = new ImageClassifier();
+var politicalClassifier = new PoliticalClassifier();
+/* class ImageClassifier {
+  constructor() {
+    this.loadModel();
+  }
+
+
+  async loadModel() {
+    console.log("Loading model...");
+    const startTime = performance.now();
+    try {
+      this.model = await tf.loadGraphModel(MOBILENET_MODEL_TFHUB_URL, {
+        fromTFHub: true,
+      });
+
+      tf.tidy(() => {
+        this.model.predict(tf.zeros([1, IMAGE_SIZE, IMAGE_SIZE, 3]));
+      });
+      const totalTime = Math.floor(performance.now() - startTime);
+      console.log(`Model loaded and initialized in ${totalTime} ms...`);
+    } catch {
+      console.error(
+        `Unable to load model from URL: ${MOBILENET_MODEL_TFHUB_URL}`
+      );
+    }
+  }
+
+  async analyzeImage(url, tabId) {
+    if (!tabId) {
+      console.error("No tab.  No prediction.");
+      return;
+    }
+    if (!this.model) {
+      console.log("Waiting for model to load...");
+      setTimeout(() => {
+        this.analyzeImage(url);
+      }, FIVE_SECONDS_IN_MS);
+      return;
+    }
+    let message;
+    this.loadImage(url).then(
+      async (img) => {
+        if (!img) {
+          console.error(
+            "Could not load image.  Either too small or unavailable."
+          );
+          return;
+        }
+        const predictions = await this.predict(img);
+        message = { action: "IMAGE_CLICK_PROCESSED", url, predictions };
+        chrome.tabs.sendMessage(tabId, message);
+      },
+      (reason) => {
+        console.error(`Failed to analyze: ${reason}`);
+      }
+    );
+  }
+
+
+  async loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = document.createElement("img");
+      img.crossOrigin = "anonymous";
+      img.onerror = function (e) {
+        reject(`Could not load image from external source ${src}.`);
+      };
+      img.onload = function (e) {
+        if (
+          (img.height && img.height > MIN_IMG_SIZE) ||
+          (img.width && img.width > MIN_IMG_SIZE)
+        ) {
+          img.width = IMAGE_SIZE;
+          img.height = IMAGE_SIZE;
+          resolve(img);
+        }
+       
+        reject(
+          `Image size too small. [${img.height} x ${img.width}] vs. minimum [${MIN_IMG_SIZE} x ${MIN_IMG_SIZE}]`
+        );
+      };
+      img.src = src;
+    });
+  }
+
+ 
+  async getTopKClasses(logits, topK) {
+    const { values, indices } = tf.topk(logits, topK, true);
+    const valuesArr = await values.data();
+    const indicesArr = await indices.data();
+    console.log(`indicesArr ${indicesArr}`);
+    const topClassesAndProbs = [];
+    for (let i = 0; i < topK; i++) {
+      topClassesAndProbs.push({
+        className: IMAGENET_CLASSES[indicesArr[i]],
+        probability: valuesArr[i],
+      });
+    }
+    return topClassesAndProbs;
+  }
+
+  async predict(imgElement) {
+    console.log("Predicting...");
+
+    const startTime1 = performance.now();
+ 
+    let startTime2;
+    const logits = tf.tidy(() => {
+ 
+      const img = tf.browser.fromPixels(imgElement).toFloat();
+ 
+      const normalized = img.div(tf.scalar(256.0));
+      const batched = normalized.reshape([1, IMAGE_SIZE, IMAGE_SIZE, 3]);
+      startTime2 = performance.now();
+      const output = this.model.predict(batched);
+      if (output.shape[output.shape.length - 1] === 1001) {
+  
+        return output.slice([0, 1], [-1, 1000]);
+      } else if (output.shape[output.shape.length - 1] === 1000) {
+        return output;
+      } else {
+        throw new Error("Unexpected shape...");
+      }
+    });
+
+ 
+    const classes = await this.getTopKClasses(logits, TOPK_PREDICTIONS);
+    const totalTime1 = performance.now() - startTime1;
+    const totalTime2 = performance.now() - startTime2;
+    console.log(
+      `Done in ${totalTime1.toFixed(1)} ms ` +
+        `(not including preprocessing: ${Math.floor(totalTime2)} ms)`
+    );
+    return classes;
+  }
+}
+
+const imageClassifier = new ImageClassifier(); */
 
 var getMetaData = /*#__PURE__*/function () {
-  var _ref2 = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee7() {
+  var _ref = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee4() {
     var metadata;
-    return regeneratorRuntime.wrap(function _callee7$(_context7) {
+    return regeneratorRuntime.wrap(function _callee4$(_context4) {
       while (1) {
-        switch (_context7.prev = _context7.next) {
+        switch (_context4.prev = _context4.next) {
           case 0:
-            _context7.next = 2;
+            _context4.next = 2;
             return fetch("https://raw.githubusercontent.com/isengupt/PoliticalClassifier/master/metadata.json");
 
           case 2:
-            metadata = _context7.sent;
-            return _context7.abrupt("return", metadata.json());
+            metadata = _context4.sent;
+            return _context4.abrupt("return", metadata.json());
 
           case 4:
           case "end":
-            return _context7.stop();
+            return _context4.stop();
         }
       }
-    }, _callee7);
+    }, _callee4);
   }));
 
   return function getMetaData() {
-    return _ref2.apply(this, arguments);
+    return _ref.apply(this, arguments);
   };
 }();
 
 var loadModel = /*#__PURE__*/function () {
-  var _ref3 = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee8() {
+  var _ref2 = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee5() {
     var url, model;
-    return regeneratorRuntime.wrap(function _callee8$(_context8) {
+    return regeneratorRuntime.wrap(function _callee5$(_context5) {
       while (1) {
-        switch (_context8.prev = _context8.next) {
+        switch (_context5.prev = _context5.next) {
           case 0:
             url = "https://raw.githubusercontent.com/isengupt/PoliticalClassifier/master/model.json";
-            _context8.next = 3;
+            _context5.next = 3;
             return tf.loadLayersModel(url);
 
           case 3:
-            model = _context8.sent;
-            return _context8.abrupt("return", model);
+            model = _context5.sent;
+            return _context5.abrupt("return", model);
 
           case 5:
           case "end":
-            return _context8.stop();
+            return _context5.stop();
         }
       }
-    }, _callee8);
+    }, _callee5);
   }));
 
   return function loadModel() {
-    return _ref3.apply(this, arguments);
+    return _ref2.apply(this, arguments);
   };
 }();
 
@@ -118405,22 +118381,22 @@ var predict = function predict(text, model, metadata) {
 };
 
 var run = /*#__PURE__*/function () {
-  var _ref4 = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee9(text, className) {
+  var _ref3 = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee6(text, className) {
     var model, metadata, sum;
-    return regeneratorRuntime.wrap(function _callee9$(_context9) {
+    return regeneratorRuntime.wrap(function _callee6$(_context6) {
       while (1) {
-        switch (_context9.prev = _context9.next) {
+        switch (_context6.prev = _context6.next) {
           case 0:
-            _context9.next = 2;
+            _context6.next = 2;
             return loadModel();
 
           case 2:
-            model = _context9.sent;
-            _context9.next = 5;
+            model = _context6.sent;
+            _context6.next = 5;
             return getMetaData();
 
           case 5:
-            metadata = _context9.sent;
+            metadata = _context6.sent;
             sum = 0;
             text.forEach(function (prediction) {
               console.log(" ".concat(prediction));
@@ -118435,7 +118411,7 @@ var run = /*#__PURE__*/function () {
                 content: count
               }
             });
-            return _context9.abrupt("return", Promise.resolve({
+            return _context6.abrupt("return", Promise.resolve({
               score: sum / text.length,
               text: text,
               className: className
@@ -118443,14 +118419,14 @@ var run = /*#__PURE__*/function () {
 
           case 12:
           case "end":
-            return _context9.stop();
+            return _context6.stop();
         }
       }
-    }, _callee9);
+    }, _callee6);
   }));
 
-  return function run(_x8, _x9) {
-    return _ref4.apply(this, arguments);
+  return function run(_x3, _x4) {
+    return _ref3.apply(this, arguments);
   };
 }();
 /* chrome.browserAction.onClicked.addListener(function (tab) {
@@ -118462,42 +118438,42 @@ var run = /*#__PURE__*/function () {
   }
 }); */
 
-
-chrome.runtime.onMessage.addListener(function (tab, message) {
+/* chrome.runtime.onMessage.addListener(function (tab, message) {
   if (message.text == "report_back") {
-    chrome.tabs.sendMessage(tab.id, {
-      text: "report_back"
-    }, doStuffWithDom);
+    console.log(message)
+    chrome.tabs.sendMessage(tab.id, { text: "report_back" }, doStuffWithDom);
   }
-});
+}); */
+
 
 function doStuffWithDom() {
   for (var _len = arguments.length, args = new Array(_len), _key = 0; _key < _len; _key++) {
     args[_key] = arguments[_key];
   }
 
-  console.log(args);
+  console.log(args[0]);
+  console.log(args); //console.log('do stuff with dom')
 
   var getData = /*#__PURE__*/function () {
-    var _ref5 = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee10() {
-      return regeneratorRuntime.wrap(function _callee10$(_context10) {
+    var _ref4 = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee7() {
+      return regeneratorRuntime.wrap(function _callee7$(_context7) {
         while (1) {
-          switch (_context10.prev = _context10.next) {
+          switch (_context7.prev = _context7.next) {
             case 0:
-              return _context10.abrupt("return", Promise.all(args[0].map(function (item) {
-                return run([item.text], item.className);
+              return _context7.abrupt("return", Promise.all(args[0].map(function (item) {
+                return politicalClassifier.run([item.text], item.className);
               })));
 
             case 1:
             case "end":
-              return _context10.stop();
+              return _context7.stop();
           }
         }
-      }, _callee10);
+      }, _callee7);
     }));
 
     return function getData() {
-      return _ref5.apply(this, arguments);
+      return _ref4.apply(this, arguments);
     };
   }();
 

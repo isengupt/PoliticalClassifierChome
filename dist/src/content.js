@@ -62,18 +62,20 @@ function slideFilter(score) {
   console.log(filteredArr['true'])
   filteredArr['true'].map((article) => {
     for (const element of document.body.getElementsByClassName(article.className)) {
-      if (element.textContent == String(article.text)) {
+     // console.log(element)
+      if (element.textContent == article.text[0]) {
         console.log(element)
-        element.style.display = 'block'
+        //element.style.display = 'block'
       }
     }
   })
   console.log(filteredArr['false'])
   filteredArr['true'].map((article) => {
     for (const element of document.body.getElementsByClassName(article.className)) {
-      if (element.textContent == String(article.text)) {
+     // console.log(element)
+      if (element.textContent == article.text[0]) {
         console.log(element)
-        element.style.display = 'none'
+        //element.style.display = 'none'
       }
     }
   })
@@ -207,23 +209,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       filterArr.push(item)
 
       for (const element of document.body.getElementsByClassName(item.className)) {
-        if (element.textContent == String(item.text) && !edit.includes(String(item.text).substring(0,50))) {
-          console.log(element)
+        if (element.textContent == String(item.text)) {
+          console.log(element.parentElement.parentElement.parentElement)
+  
           edit.push(String(item.text).substring(0,50))
           
           const textColor = colorPicker(item.score)
-        
+          element.color = 'white'
+          element.parentElement.style.backgroundColor = textColor.color
+          element.parentElement.parentElement.style.backgroundColor = textColor.color
+          element.parentElement.parentElement.parentElement.style.backgroundColor = textColor.color
+          element.parentElement.parentElement.parentElement.parentElement.style.backgroundColor = textColor.color
+          element.parentElement.parentElement.parentElement.parentElement.parentElement.style.backgroundColor = textColor.color
+          element.parentElement.parentElement.parentElement.parentElement.parentElement.parentElement.style.backgroundColor = textColor.color
           element.style.backgroundColor = textColor.color;
           const score = document.createElement('div')
-          score.textContent = String(item.score)
+          score.textContent = 'Score: ' + String(item.score)
           score.className = 'political_classifier_score'
 /*           score.style.position = 'absolute';
           score.style.top = '50%';
           score.style.left = '50%';
           score.style.transform = 'translate(-50%, -50%)'; */
-          score.style.fontSize = '34px';
+          score.style.fontSize = '18px';
+
           score.style.fontFamily = 'Google Sans,sans-serif';
-          score.style.fontWeight = '700';
+          score.style.fontWeight = '600';
           element.appendChild(score)
 
         }
@@ -234,25 +244,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log(message)
     slideFilter(message.value)
   } else if (message && message.text === "report_back") {
-    const timeLine = document.body.getElementsByTagName("main")
+    const timeLine = document.body.getElementsByTagName("div")
 
-    console.log(timeLine)
-    
+    //console.log(timeLine)
+    const posts =  document.body.getElementsByClassName('Post')
+    //console.log("All posts", posts)
+
+
     let childItems = []
     let childTexts = []
     for (const element of timeLine[0].getElementsByTagName("*")) {
-      if (element.textContent.length < 150) {
+      if (element.textContent.length < 20) {
         continue;
       }
       else if (childTexts.includes(String(element.textContent).substring(0,50))) {
-        console.log(element)
+        //console.log(element)
         continue;
       }
       
       else {
         if (element.className && element.textContent) {
           childTexts.push(String(element.textContent).substring(0,50))
-          childItems.push({text: element.textContent, className: element.className})
+         // childItems.push({text: element.textContent, className: element.className})
         }
         else {
           continue;
@@ -263,7 +276,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     
     }
-
+    for (const element of posts) {
+      for (const item of element.getElementsByTagName("h3")) {
+        console.log(item.className)
+        console.log(item.innerText)
+     
+        childItems.push({text: item.innerText, className: item.className})
+      }
+    }
+console.log(childItems)
     sendResponse(childItems)
   }
 });
@@ -352,23 +373,6 @@ sendResponse(childTexts);
 
   } 
 }); */
-function getAllTexts() {
-
-
-  var textArray = [];
-
-    var elements = document.body.getElementsByTagName("*");
-
-    for(var i = 0; i < elements.length; i++) {
-       var current = elements[i];
-        if(current.children.length === 0 && current.textContent.replace(/ |\n/g,'') !== '') {
-           // Check the element has no children && that it is not empty
-           textArray.push(current.textContent);
-        }
-    } 
-
-return textArray
-}
 
 
 
